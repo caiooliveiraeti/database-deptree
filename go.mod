@@ -2,8 +2,6 @@ module github.com/caiooliveiraeti/database-deptree
 
 go 1.21
 
-toolchain go1.22.4
-
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.0
 	github.com/godror/godror v0.44.0
