@@ -24,9 +24,6 @@ jobs:
     - name: Install dependencies
       run: make install-deps
 
-    - name: Generate mocks
-      run: make generate-mocks
-
     - name: Build
       run: make build
 
