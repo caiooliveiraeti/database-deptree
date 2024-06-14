@@ -16,9 +16,6 @@
 # Logs
 *.log
 
-# Arquivos de dependências do Go
-go.sum
-
 # Diretórios e arquivos de configuração do editor
 .vscode/
 .idea/
