@@ -4,18 +4,25 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/golang/mock/gomock"
+	"github.com/caiooliveiraeti/database-deptree/internal/analyzer/oracle/mocks"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAnalyzeOracleTree(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	db, sqlMock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
 
-	mockDB := mocks.NewMockOracleDB(ctrl)
-	rows := sqlmock.NewRows([]string{"OWNER", "NAME", "TYPE", "REFERENCED_OWNER", "REFERENCED_NAME", "REFERENCED_TYPE"}).
+	rows := sqlMock.NewRows([]string{"OWNER", "NAME", "TYPE", "REFERENCED_OWNER", "REFERENCED_NAME", "REFERENCED_TYPE"}).
 		AddRow("owner", "name", "type", "ref_owner", "ref_name", "ref_type")
 
-	mockDB.EXPECT().Query(gomock.Any(), gomock.Any()).Return(rows, nil).Times(1)
+	sqlMock.ExpectQuery("SELECT OWNER, NAME, TYPE, REFERENCED_OWNER, REFERENCED_NAME, REFERENCED_TYPE FROM DBA_DEPENDENCIES WHERE OWNER = 'YOUR_SCHEMA'").WillReturnRows(rows)
+
+	// Mock do OracleDB para retornar a conexão sqlmock
+	mockDB := new(mocks.OracleDB)
+	mockDB.On("Query", mock.Anything, mock.Anything).Return(db.Query("SELECT OWNER, NAME, TYPE, REFERENCED_OWNER, REFERENCED_NAME, REFERENCED_TYPE FROM DBA_DEPENDENCIES WHERE OWNER = 'YOUR_SCHEMA'"))
+	mockDB.On("Close").Return(nil)
 
 	oracleAnalyzer := OracleAnalyzer{
 		User:     "user",
@@ -25,11 +32,9 @@ func TestAnalyzeOracleTree(t *testing.T) {
 	}
 
 	deps, err := oracleAnalyzer.Analyze()
-	if err != nil {
-		t.Fatalf("Failed to analyze Oracle dependencies: %v", err)
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, deps)
 
-	if len(deps) == 0 {
-		t.Fatalf("Expected dependencies to be found, got %d", len(deps))
-	}
+	mockDB.AssertExpectations(t)
+	sqlMock.ExpectationsWereMet()
 }
