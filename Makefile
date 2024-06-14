@@ -51,5 +51,5 @@ lint:
 .PHONY: install-deps
 install-deps:
 	$(GO) mod download
-	$(GO) get github.com/neo4j/neo4j-go-driver/v5
+	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1
 	$(GO) install github.com/vektra/mockery/v2@latest
