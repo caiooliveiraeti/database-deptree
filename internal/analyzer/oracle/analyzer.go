@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/caiooliveiraeti/database-deptree/internal/analyzer"
-	_ "github.com/godror/godror"
 )
 
 type OracleAnalyzer struct {
