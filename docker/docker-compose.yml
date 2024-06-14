@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:4.4
+    container_name: neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/test
+    volumes:
+      - ./init:/var/lib/neo4j/conf
+    ports:
+      - 7474:7474
+      - 7687:7687
+
+  app:
+    build: .
+    container_name: go-neo4j-app
+    depends_on:
+      - neo4j
+    environment:
+      ORACLE_USER: your_oracle_user
+      ORACLE_PASSWORD: your_oracle_password
+      ORACLE_DSN: your_oracle_dsn
+    volumes:
+      - ./java:/app/java

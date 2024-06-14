@@ -1,0 +1,40 @@
+# Diretórios bin e pkg
+/bin/
+/pkg/
+
+# Diretório build
+/build/
+
+# Arquivos binários gerados
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Logs
+*.log
+
+# Arquivos de dependências do Go
+go.sum
+
+# Diretórios e arquivos de configuração do editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Módulos de dependências do Go
+vendor/
+
+# Cobertura de testes
+*.out
+
+# Mocks gerados pelo mockgen
+internal/database/mocks/
+internal/analyzer/oracle/mocks/
