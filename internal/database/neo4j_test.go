@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/caiooliveiraeti/database-deptree/internal/analyzer"
-	"github.com/caiooliveiraeti/database-deptree/internal/database/mocks"
+	"github.com/caiooliveiraeti/database-deptree/test/mocks"
 	"github.com/stretchr/testify/mock"
 )
 
