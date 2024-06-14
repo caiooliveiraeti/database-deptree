@@ -9,8 +9,8 @@ import (
 )
 
 func TestInsertDependencies(t *testing.T) {
-	mockSession := new(mocks.Neo4jSession)
-	mockTransaction := new(mocks.Neo4jTransaction)
+	mockSession := mocks.NewNeo4jSession(t)
+	mockTransaction := mocks.NewNeo4jTransaction(t)
 
 	mockSession.On("BeginTransaction").Return(mockTransaction, nil)
 	mockTransaction.On("Run", mock.Anything, mock.Anything).Return(nil, nil)
@@ -30,7 +30,4 @@ func TestInsertDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to insert dependencies: %v", err)
 	}
-
-	mockSession.AssertExpectations(t)
-	mockTransaction.AssertExpectations(t)
 }

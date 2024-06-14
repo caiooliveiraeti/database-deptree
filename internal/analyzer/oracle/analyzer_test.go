@@ -20,7 +20,7 @@ func TestAnalyzeOracleTree(t *testing.T) {
 	sqlMock.ExpectQuery("SELECT OWNER, NAME, TYPE, REFERENCED_OWNER, REFERENCED_NAME, REFERENCED_TYPE FROM DBA_DEPENDENCIES WHERE OWNER = 'YOUR_SCHEMA'").WillReturnRows(rows)
 
 	// Mock do OracleDB para retornar a conexão sqlmock
-	mockDB := new(mocks.OracleDB)
+	mockDB := mocks.NewOracleDB(t)
 	mockDB.On("Query", mock.Anything, mock.Anything).Return(db.Query("SELECT OWNER, NAME, TYPE, REFERENCED_OWNER, REFERENCED_NAME, REFERENCED_TYPE FROM DBA_DEPENDENCIES WHERE OWNER = 'YOUR_SCHEMA'"))
 	mockDB.On("Close").Return(nil)
 
@@ -35,6 +35,5 @@ func TestAnalyzeOracleTree(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, deps)
 
-	mockDB.AssertExpectations(t)
 	sqlMock.ExpectationsWereMet()
 }
