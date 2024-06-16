@@ -1,46 +1,46 @@
 package database
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/caiooliveiraeti/database-deptree/internal/analyzer"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
 func ConnectNeo4j(uri, user, password string) (Neo4jDriver, error) {
-	driver, err := neo4j.NewDriver(uri, neo4j.BasicAuth(user, password, ""))
+	driver, err := neo4j.NewDriverWithContext(uri, neo4j.BasicAuth(user, password, ""))
 	if err != nil {
 		return nil, err
 	}
 	return driver, nil
 }
 
-func InsertDependencies(session Neo4jSession, dependencies []analyzer.Dependency) error {
-	tx, err := session.BeginTransaction()
+func InsertDependencies(ctx context.Context, session Neo4jSession, dependencies []analyzer.Dependency) error {
+	tx, err := session.BeginTransaction(ctx)
 	if err != nil {
 		return err
 	}
-
+	query := `
+		MERGE (a:%s {name: $source})
+		MERGE (b:%s {name: $target})
+		MERGE (a)-[:%s]->(b)
+	`
 	for _, dep := range dependencies {
-		query := `
-            MERGE (a:%s {name: $source})
-            MERGE (b:%s {name: $target})
-            MERGE (a)-[:%s]->(b)
-        `
 		_, err := tx.Run(
-			fmt.Sprintf(query, dep.SourceLabel, dep.TargetLabel, dep.Relationship),
+			ctx,
+			query,
 			map[string]interface{}{
 				"source": dep.Source,
 				"target": dep.Target,
 			},
 		)
 		if err != nil {
-			tx.Rollback()
+			tx.Rollback(ctx)
 			return err
 		}
 	}
 
-	err = tx.Commit()
+	err = tx.Commit(ctx)
 	if err != nil {
 		return err
 	}

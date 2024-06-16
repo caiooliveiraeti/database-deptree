@@ -35,5 +35,6 @@ func TestAnalyzeOracleTree(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, deps)
 
-	sqlMock.ExpectationsWereMet()
+	err = sqlMock.ExpectationsWereMet()
+	require.NoError(t, err)
 }
