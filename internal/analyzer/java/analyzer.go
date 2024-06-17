@@ -1,7 +1,6 @@
 package java
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,7 +26,10 @@ type Repository struct {
 
 func (ja JavaAnalyzer) Analyze() ([]analyzer.Dependency, error) {
 	var dependencies []analyzer.Dependency
-	entities, repositories := analyzeJavaFiles(ja.RootDir)
+	entities, repositories, err := analyzeJavaFiles(ja.RootDir)
+	if err != nil {
+		return nil, err
+	}
 
 	entityTableMap := make(map[string]string)
 	for _, entity := range entities {
@@ -75,7 +77,7 @@ func (ja JavaAnalyzer) Analyze() ([]analyzer.Dependency, error) {
 	return dependencies, nil
 }
 
-func analyzeJavaFiles(rootDir string) ([]Entity, []Repository) {
+func analyzeJavaFiles(rootDir string) ([]Entity, []Repository, error) {
 	var entities []Entity
 	var repositories []Repository
 
@@ -87,21 +89,14 @@ func analyzeJavaFiles(rootDir string) ([]Entity, []Repository) {
 	namedQueryPattern := regexp.MustCompile(`@NamedQuery\s*\(\s*name\s*=\s*"([^"]*)"\s*,\s*query\s*=\s*"([^"]*)"\s*\)`)
 	namedQueriesPattern := regexp.MustCompile(`@NamedQueries\s*\(\s*{\s*(?:@NamedQuery\s*\(\s*name\s*=\s*"([^"]*)"\s*,\s*query\s*=\s*"([^"]*)"\s*\)\s*,?\s*)+\s*}\s*\)`)
 
-	filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if !info.IsDir() && filepath.Ext(path) == ".java" {
-			file, err := os.Open(path)
+			content, err := readFile(path)
 			if err != nil {
 				return err
-			}
-			defer file.Close()
-
-			scanner := bufio.NewScanner(file)
-			var content string
-			for scanner.Scan() {
-				content += scanner.Text() + "\n"
 			}
 
 			if entityPattern.MatchString(content) {
@@ -148,7 +143,11 @@ func analyzeJavaFiles(rootDir string) ([]Entity, []Repository) {
 		return nil
 	})
 
-	return entities, repositories
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return entities, repositories, nil
 }
 
 func extractTablesFromQuery(query string) []string {
@@ -159,4 +158,12 @@ func extractTablesFromQuery(query string) []string {
 		tables = append(tables, match[1])
 	}
 	return tables
+}
+
+func readFile(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }

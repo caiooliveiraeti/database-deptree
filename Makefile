@@ -1,5 +1,5 @@
 # Nome do executável
-BINARY=bin/main
+BINARY=bin/database-deptree
 
 # Diretório de origem principal
 SRC_DIR=cmd
@@ -21,8 +21,7 @@ build: generate-code
 clean:
 	$(GO) clean
 	rm -f $(BINARY)
-	rm -rf internal/database/mocks
-	rm -rf internal/analyzer/oracle/mocks
+	rm -rf test/mocks
 
 .PHONY: generate-code
 generate-code:

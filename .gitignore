@@ -33,5 +33,4 @@ vendor/
 *.out
 
 # Mocks gerados pelo mockgen
-internal/database/mocks/
-internal/analyzer/oracle/mocks/
+test/mocks/

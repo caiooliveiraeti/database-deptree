@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/caiooliveiraeti/database-deptree/internal/analyzer/oracle/mocks"
+	"github.com/caiooliveiraeti/database-deptree/test/mocks"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -35,5 +35,6 @@ func TestAnalyzeOracleTree(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, deps)
 
-	sqlMock.ExpectationsWereMet()
+	err = sqlMock.ExpectationsWereMet()
+	require.NoError(t, err)
 }

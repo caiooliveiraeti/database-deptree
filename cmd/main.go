@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 
 	"github.com/caiooliveiraeti/database-deptree/internal/analyzer"
@@ -25,15 +26,17 @@ func main() {
 
 	analyzers := []analyzer.Analyzer{javaAnalyzer, oracleAnalyzer}
 
+	context := context.Background()
+
 	// Conectar ao Neo4j
 	driver, err := database.ConnectNeo4j(cfg.Neo4jURI, cfg.Neo4jUser, cfg.Neo4jPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer driver.Close()
+	defer driver.Close(context)
 
-	session := driver.NewSession(neo4j.SessionConfig{})
-	defer session.Close()
+	session := driver.NewSession(context, neo4j.SessionConfig{})
+	defer session.Close(context)
 
 	for _, analyzer := range analyzers {
 		deps, err := analyzer.Analyze()
@@ -41,7 +44,7 @@ func main() {
 			log.Fatalf("Error analyzing: %v", err)
 		}
 
-		err = database.InsertDependencies(session, deps)
+		err = database.InsertDependencies(context, session, deps)
 		if err != nil {
 			log.Fatalf("Error inserting dependencies: %v", err)
 		}
