@@ -11,15 +11,3 @@ services:
     ports:
       - 7474:7474
       - 7687:7687
-
-  app:
-    build: .
-    container_name: go-neo4j-app
-    depends_on:
-      - neo4j
-    environment:
-      ORACLE_USER: your_oracle_user
-      ORACLE_PASSWORD: your_oracle_password
-      ORACLE_DSN: your_oracle_dsn
-    volumes:
-      - ./java:/app/java

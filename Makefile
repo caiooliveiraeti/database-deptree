@@ -1,5 +1,5 @@
 # Nome do executável
-BINARY=bin/main
+BINARY=bin/database-deptree
 
 # Diretório de origem principal
 SRC_DIR=cmd

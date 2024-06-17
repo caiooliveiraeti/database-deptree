@@ -30,7 +30,10 @@ func TestInsertDependencies(t *testing.T) {
 		},
 	}
 
-	InsertDependencies(ctx, mockSession, deps)
+	err := InsertDependencies(ctx, mockSession, deps)
+	if err != nil {
+		t.Fatalf("Failed to insert dependencies: %v", err)
+	}
 }
 
 type MockNeo4jExplicitTransaction struct {

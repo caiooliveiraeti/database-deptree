@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 
 	"github.com/caiooliveiraeti/database-deptree/internal/analyzer"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
@@ -35,7 +36,10 @@ func InsertDependencies(ctx context.Context, session Neo4jSession, dependencies 
 			},
 		)
 		if err != nil {
-			tx.Rollback(ctx)
+			errRollback := tx.Rollback(ctx)
+			if errRollback != nil {
+				return errors.Join(err, errRollback)
+			}
 			return err
 		}
 	}

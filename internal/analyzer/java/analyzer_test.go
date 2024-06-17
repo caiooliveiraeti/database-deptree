@@ -1,18 +1,12 @@
 package java
 
 import (
-	"io/ioutil"
 	"os"
 	"testing"
 )
 
 func TestAnalyzeJavaFiles(t *testing.T) {
-	// Setup temporary directory with Java files for testing
-	tmpDir, err := ioutil.TempDir("", "java_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	javaFileContent := `
         @Entity
@@ -27,7 +21,11 @@ func TestAnalyzeJavaFiles(t *testing.T) {
             List<TestEntity> findById(Long id);
         }
     `
-	ioutil.WriteFile(tmpDir+"/TestEntity.java", []byte(javaFileContent), 0644)
+
+	err := writeFile(tmpDir+"/TestEntity.java", javaFileContent)
+	if err != nil {
+		t.Fatalf("Failed to analyze Java files: %v", err)
+	}
 
 	javaAnalyzer := JavaAnalyzer{RootDir: tmpDir}
 	deps, err := javaAnalyzer.Analyze()
@@ -38,4 +36,8 @@ func TestAnalyzeJavaFiles(t *testing.T) {
 	if len(deps) == 0 {
 		t.Fatalf("Expected dependencies to be found, got %d", len(deps))
 	}
+}
+
+func writeFile(path string, content string) error {
+	return os.WriteFile(path, []byte(content), 0644)
 }
