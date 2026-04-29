@@ -1,63 +1,71 @@
 package oracle
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
-	"github.com/caiooliveiraeti/database-deptree/internal/analyzer"
+	"github.com/caiooliveiraeti/database-deptree/internal/graph"
+	_ "github.com/sijms/go-ora/v2" // registers the "oracle" driver
 )
 
-type OracleAnalyzer struct {
+const depsQuery = `
+	SELECT OWNER, NAME, TYPE, REFERENCED_OWNER, REFERENCED_NAME, REFERENCED_TYPE
+	FROM DBA_DEPENDENCIES
+	WHERE OWNER = :schema
+`
+
+type Analyzer struct {
 	User     string
 	Password string
 	DSN      string
+	Schema   string
 	DB       OracleDB
 }
 
-type OracleDependency struct {
-	Owner    string
-	Name     string
-	Type     string
-	RefOwner string
-	RefName  string
-	RefType  string
+func New(user, password, dsn, schema string) *Analyzer {
+	return &Analyzer{
+		User:     user,
+		Password: password,
+		DSN:      dsn,
+		Schema:   schema,
+	}
 }
 
-func (oa OracleAnalyzer) Analyze() ([]analyzer.Dependency, error) {
-	if oa.DB == nil {
-		db, err := sql.Open("godror", fmt.Sprintf("user=%s password=%s connectString=%s", oa.User, oa.Password, oa.DSN))
-		if err != nil {
-			return nil, err
-		}
-		oa.DB = db
-	}
-	defer oa.DB.Close()
+func (a *Analyzer) Name() string { return "oracle" }
 
-	query := `
-        SELECT OWNER, NAME, TYPE, REFERENCED_OWNER, REFERENCED_NAME, REFERENCED_TYPE
-        FROM DBA_DEPENDENCIES
-        WHERE OWNER = 'YOUR_SCHEMA'
-    `
-	rows, err := oa.DB.Query(query)
+func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
+	db := a.DB
+	if db == nil {
+		conn, err := sql.Open("oracle", fmt.Sprintf("oracle://%s:%s@%s", a.User, a.Password, a.DSN))
+		if err != nil {
+			return nil, fmt.Errorf("opening oracle connection: %w", err)
+		}
+		db = conn
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, depsQuery, sql.Named("schema", a.Schema))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("querying DBA_DEPENDENCIES: %w", err)
 	}
 	defer rows.Close()
 
-	var dependencies []analyzer.Dependency
+	var edges []graph.Edge
 	for rows.Next() {
-		var dep OracleDependency
-		if err := rows.Scan(&dep.Owner, &dep.Name, &dep.Type, &dep.RefOwner, &dep.RefName, &dep.RefType); err != nil {
-			return nil, err
+		if ctx.Err() != nil {
+			return edges, ctx.Err()
 		}
 
-		dependencies = append(dependencies, analyzer.Dependency{
-			Source:       dep.Name,
-			SourceLabel:  fmt.Sprintf("Object_%s", dep.Type),
-			Target:       dep.RefName,
-			TargetLabel:  fmt.Sprintf("Object_%s", dep.RefType),
-			Relationship: "DEPENDS_ON",
-		})
+		var owner, name, typ, refOwner, refName, refType string
+		if err := rows.Scan(&owner, &name, &typ, &refOwner, &refName, &refType); err != nil {
+			return nil, fmt.Errorf("scanning row: %w", err)
+		}
+
+		src := graph.NewNode(typ, owner+"."+name, map[string]any{"owner": owner, "shortName": name})
+		dst := graph.NewNode(refType, refOwner+"."+refName, map[string]any{"owner": refOwner, "shortName": refName})
+		edges = append(edges, graph.NewEdge(src, dst, "DEPENDS_ON", nil))
 	}
-	return dependencies, nil
+
+	return edges, rows.Err()
 }

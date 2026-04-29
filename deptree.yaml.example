@@ -1,0 +1,24 @@
+# deptree.yaml — copy to deptree.yaml and fill in your values.
+# Env vars NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD override these.
+
+neo4j:
+  uri: bolt://localhost:7687
+  user: neo4j
+  password: changeme
+
+# Optional: list of analyzers run by "deptree all".
+# Each entry must match a registered analyzer (group + name).
+run:
+  - group: files
+    name: java
+    config:
+      root-dir: ./src/main/java
+
+  # Uncomment to include Oracle:
+  # - group: database
+  #   name: oracle
+  #   config:
+  #     user: system
+  #     password: oracle
+  #     dsn: localhost:1521/FREEPDB1
+  #     schema: MY_SCHEMA

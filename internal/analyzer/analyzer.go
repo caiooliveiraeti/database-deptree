@@ -1,13 +1,12 @@
 package analyzer
 
-type Dependency struct {
-	Source       string
-	SourceLabel  string
-	Target       string
-	TargetLabel  string
-	Relationship string
-}
+import (
+	"context"
+
+	"github.com/caiooliveiraeti/database-deptree/internal/graph"
+)
 
 type Analyzer interface {
-	Analyze() ([]Dependency, error)
+	Name() string
+	Analyze(ctx context.Context) ([]graph.Edge, error)
 }

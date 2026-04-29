@@ -1,9 +1,12 @@
 package oracle
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 //go:generate mockery --name=OracleDB --outpkg=mocks
 type OracleDB interface {
-	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	Close() error
 }

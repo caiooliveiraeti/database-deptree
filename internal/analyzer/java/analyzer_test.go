@@ -1,41 +1,136 @@
 package java
 
 import (
-	"io/ioutil"
+	"context"
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/caiooliveiraeti/database-deptree/internal/graph"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestAnalyzeJavaFiles(t *testing.T) {
-	// Setup temporary directory with Java files for testing
-	tmpDir, err := ioutil.TempDir("", "java_test")
-	if err != nil {
-		t.Fatal(err)
+const ownerFixture = `
+@Entity
+@Table(name = "owners")
+public class Owner {
+    @Id
+    private Long id;
+
+    @OneToMany(cascade = CascadeType.ALL, mappedBy = "owner")
+    private Set<Pet> pets;
+}
+`
+
+const petFixture = `
+@Entity
+@Table(name = "pets")
+public class Pet {
+    @Id
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "owner_id")
+    private Owner owner;
+
+    @ManyToOne
+    @JoinColumn(name = "type_id")
+    private PetType type;
+}
+`
+
+const repoFixture = `
+public interface OwnerRepository extends JpaRepository<Owner, Long> {
+    @Query("SELECT o FROM Owner o WHERE o.id = ?1")
+    List<Owner> findById(Long id);
+
+    @Procedure("calculate_tax")
+    BigDecimal computeTax(Long id);
+}
+`
+
+func TestAnalyze_StoredIn(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Owner.java"), []byte(ownerFixture), 0644))
+
+	edges, err := New(tmpDir, "").Analyze(context.Background())
+	require.NoError(t, err)
+
+	rels := relSet(edges)
+	assert.True(t, rels["STORED_IN"], "expected STORED_IN (ENTITY -> TABLE)")
+}
+
+func TestAnalyze_JoinEdges(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Owner.java"), []byte(ownerFixture), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Pet.java"), []byte(petFixture), 0644))
+
+	edges, err := New(tmpDir, "").Analyze(context.Background())
+	require.NoError(t, err)
+
+	rels := relSet(edges)
+	assert.True(t, rels["MANY_TO_ONE"], "expected MANY_TO_ONE (pets -> owners, pets -> types)")
+	assert.True(t, rels["ONE_TO_MANY"], "expected ONE_TO_MANY (owners -> pets)")
+
+	// Verify that Pet's ManyToOne to Owner resolves to table "owners" (not class name)
+	for _, e := range edges {
+		if e.Relationship == "MANY_TO_ONE" && e.Source.ID == "TABLE:pets" {
+			if e.Properties["toClass"] == "Owner" {
+				assert.Equal(t, "TABLE:owners", e.Target.ID,
+					"Pet @ManyToOne Owner should resolve to TABLE:owners")
+			}
+		}
 	}
-	defer os.RemoveAll(tmpDir)
+}
 
-	javaFileContent := `
-        @Entity
-        @Table(name = "TestTable")
-        public class TestEntity {
-            @Id
-            private Long id;
-        }
+func TestAnalyze_Repository(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Owner.java"), []byte(ownerFixture), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "OwnerRepository.java"), []byte(repoFixture), 0644))
 
-        public interface TestRepository extends JpaRepository<TestEntity, Long> {
-            @Query("SELECT t FROM TestEntity t WHERE t.id = ?1")
-            List<TestEntity> findById(Long id);
-        }
-    `
-	ioutil.WriteFile(tmpDir+"/TestEntity.java", []byte(javaFileContent), 0644)
+	edges, err := New(tmpDir, "").Analyze(context.Background())
+	require.NoError(t, err)
 
-	javaAnalyzer := JavaAnalyzer{RootDir: tmpDir}
-	deps, err := javaAnalyzer.Analyze()
-	if err != nil {
-		t.Fatalf("Failed to analyze Java files: %v", err)
+	rels := relSet(edges)
+	assert.True(t, rels["MANAGES"])
+	assert.True(t, rels["QUERIES"])
+	assert.True(t, rels["CALLS"])
+}
+
+func TestAnalyze_EmptyDir(t *testing.T) {
+	edges, err := New(t.TempDir(), "").Analyze(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, edges)
+}
+
+func TestNodeID_ProcedureCrossAnalyzer(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `
+@Entity
+public class MyEntity {}
+public interface MyRepo extends JpaRepository<MyEntity, Long> {
+    @Procedure("calculate_tax")
+    void run();
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "MyEntity.java"), []byte(content), 0644))
+
+	edges, err := New(tmpDir, "").Analyze(context.Background())
+	require.NoError(t, err)
+
+	for _, e := range edges {
+		if e.Relationship == "CALLS" {
+			assert.Equal(t, "PROCEDURE:calculate_tax", e.Target.ID,
+				"must match Oracle's NodeID for the same procedure")
+		}
 	}
+}
 
-	if len(deps) == 0 {
-		t.Fatalf("Expected dependencies to be found, got %d", len(deps))
+func relSet(edges []graph.Edge) map[string]bool {
+	m := make(map[string]bool)
+	for _, e := range edges {
+		m[e.Relationship] = true
 	}
+	return m
 }

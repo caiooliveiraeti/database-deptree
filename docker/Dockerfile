@@ -1,18 +1,20 @@
-# Usar a imagem base oficial do Golang
-FROM golang:1.16
+# Build stage
+FROM golang:1.22.4-alpine3.19 AS builder
 
-# Definir o diretório de trabalho dentro do contêiner
 WORKDIR /app
 
-# Copiar os arquivos go.mod e go.sum e baixar as dependências
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copiar o código-fonte para o contêiner
 COPY . .
+RUN CGO_ENABLED=0 go build -o /deptree ./cmd/deptree
 
-# Construir o executável
-RUN go build -o main .
+# Runtime stage
+FROM alpine:3.19
 
-# Executar o executável
-CMD ["./main"]
+RUN apk --no-cache add ca-certificates
+
+COPY --from=builder /deptree /usr/local/bin/deptree
+
+ENTRYPOINT ["deptree"]
+CMD ["--help"]

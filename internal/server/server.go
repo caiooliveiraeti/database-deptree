@@ -1,0 +1,135 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/caiooliveiraeti/database-deptree/internal/store"
+)
+
+type Server struct {
+	st     store.Store
+	webFS  fs.FS
+	port   int
+}
+
+func New(st store.Store, webFS fs.FS, port int) *Server {
+	return &Server{st: st, webFS: webFS, port: port}
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/api/graph", s.handleGraph)
+	mux.HandleFunc("/api/meta", s.handleMeta)
+	mux.Handle("/", http.FileServer(http.FS(s.webFS)))
+
+	addr := fmt.Sprintf(":%d", s.port)
+	srv := &http.Server{Addr: addr, Handler: mux}
+
+	slog.Info("deptree UI ready", "url", fmt.Sprintf("http://localhost:%d", s.port))
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	select {
+	case <-ctx.Done():
+		return srv.Shutdown(context.Background())
+	case err := <-errCh:
+		return err
+	}
+}
+
+// handleGraph returns nodes and edges, optionally filtered.
+// Query params: labels=Entity,Table  rels=STORED_IN,DEPENDS_ON
+func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	filter := store.GraphFilter{
+		Labels:  splitParam(r.URL.Query().Get("labels")),
+		Rels:    splitParam(r.URL.Query().Get("rels")),
+		Systems: splitParam(r.URL.Query().Get("systems")),
+	}
+
+	data, err := s.st.QueryGraph(r.Context(), filter)
+	if err != nil {
+		slog.Error("graph query failed", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, data)
+}
+
+// handleMeta returns the distinct node labels and relationship types present in the graph.
+func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
+	all, err := s.st.QueryGraph(r.Context(), store.GraphFilter{})
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	labels := unique(func() []string {
+		out := make([]string, len(all.Nodes))
+		for i, n := range all.Nodes {
+			out[i] = n.Label
+		}
+		return out
+	}())
+
+	rels := unique(func() []string {
+		out := make([]string, len(all.Edges))
+		for i, e := range all.Edges {
+			out[i] = e.Rel
+		}
+		return out
+	}())
+
+	systems := unique(func() []string {
+		out := []string{}
+		for _, n := range all.Nodes {
+			if n.System != "" {
+				out = append(out, n.System)
+			}
+		}
+		return out
+	}())
+
+	writeJSON(w, map[string]any{"labels": labels, "rels": rels, "systems": systems})
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		slog.Error("json encode failed", "err", err)
+	}
+}
+
+func splitParam(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func unique(ss []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}

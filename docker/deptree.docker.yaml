@@ -1,0 +1,13 @@
+# deptree config used inside docker compose (mounted read-only as /app/deptree.yaml).
+# Neo4j settings are overridden by NEO4J_* env vars set in docker-compose.yml.
+neo4j:
+  uri: bolt://neo4j:7687
+  user: neo4j
+  password: deptree123
+
+# Analyzers to run when executing: docker compose run --rm deptree all
+run:
+  - group: files
+    name: java
+    config:
+      root-dir: /workspace/spring-petclinic/src/main/java

@@ -2,40 +2,87 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestLoadConfig(t *testing.T) {
-	// Set environment variables
-	os.Setenv("ORACLE_USER", "test_oracle_user")
-	os.Setenv("ORACLE_PASSWORD", "test_oracle_password")
-	os.Setenv("ORACLE_DSN", "test_oracle_dsn")
-	os.Setenv("NEO4J_URI", "bolt://localhost:7687")
-	os.Setenv("NEO4J_USER", "neo4j")
-	os.Setenv("NEO4J_PASSWORD", "test")
-	os.Setenv("JAVA_ROOT_DIR", "./java")
+func TestLoad_EnvVars(t *testing.T) {
+	t.Setenv("NEO4J_URI", "bolt://testhost:7687")
+	t.Setenv("NEO4J_USER", "testuser")
+	t.Setenv("NEO4J_PASSWORD", "testpass")
 
-	cfg := LoadConfig()
+	cfg, err := Load("nonexistent.yaml")
+	require.NoError(t, err)
 
-	if cfg.OracleUser != "test_oracle_user" {
-		t.Errorf("expected OracleUser to be 'test_oracle_user', got %s", cfg.OracleUser)
-	}
-	if cfg.OraclePassword != "test_oracle_password" {
-		t.Errorf("expected OraclePassword to be 'test_oracle_password', got %s", cfg.OraclePassword)
-	}
-	if cfg.OracleDSN != "test_oracle_dsn" {
-		t.Errorf("expected OracleDSN to be 'test_oracle_dsn', got %s", cfg.OracleDSN)
-	}
-	if cfg.Neo4jURI != "bolt://localhost:7687" {
-		t.Errorf("expected Neo4jURI to be 'bolt://localhost:7687', got %s", cfg.Neo4jURI)
-	}
-	if cfg.Neo4jUser != "neo4j" {
-		t.Errorf("expected Neo4jUser to be 'neo4j', got %s", cfg.Neo4jUser)
-	}
-	if cfg.Neo4jPassword != "test" {
-		t.Errorf("expected Neo4jPassword to be 'test', got %s", cfg.Neo4jPassword)
-	}
-	if cfg.JavaRootDir != "./java" {
-		t.Errorf("expected JavaRootDir to be './java', got %s", cfg.JavaRootDir)
-	}
+	assert.Equal(t, "bolt://testhost:7687", cfg.Neo4j.URI)
+	assert.Equal(t, "testuser", cfg.Neo4j.User)
+	assert.Equal(t, "testpass", cfg.Neo4j.Password)
+}
+
+func TestLoad_YAMLFile(t *testing.T) {
+	content := `
+neo4j:
+  uri: bolt://yamlhost:7687
+  user: yamluser
+  password: yamlpass
+`
+	cfgFile := filepath.Join(t.TempDir(), "deptree.yaml")
+	require.NoError(t, os.WriteFile(cfgFile, []byte(content), 0644))
+
+	cfg, err := Load(cfgFile)
+	require.NoError(t, err)
+
+	assert.Equal(t, "bolt://yamlhost:7687", cfg.Neo4j.URI)
+	assert.Equal(t, "yamluser", cfg.Neo4j.User)
+	assert.Equal(t, "yamlpass", cfg.Neo4j.Password)
+}
+
+func TestLoad_EnvOverridesYAML(t *testing.T) {
+	content := `
+neo4j:
+  uri: bolt://yamlhost:7687
+  user: yamluser
+  password: yamlpass
+`
+	cfgFile := filepath.Join(t.TempDir(), "deptree.yaml")
+	require.NoError(t, os.WriteFile(cfgFile, []byte(content), 0644))
+
+	t.Setenv("NEO4J_URI", "bolt://envhost:7687")
+
+	cfg, err := Load(cfgFile)
+	require.NoError(t, err)
+
+	assert.Equal(t, "bolt://envhost:7687", cfg.Neo4j.URI, "env var should override YAML")
+	assert.Equal(t, "yamluser", cfg.Neo4j.User, "YAML value should be kept when no env var")
+}
+
+func TestLoad_RunSection(t *testing.T) {
+	content := `
+neo4j:
+  uri: bolt://localhost:7687
+run:
+  - group: files
+    name: java
+    config:
+      root-dir: ./src
+  - group: database
+    name: oracle
+    config:
+      dsn: localhost:1521/orcl
+      schema: MY_SCHEMA
+`
+	cfgFile := filepath.Join(t.TempDir(), "deptree.yaml")
+	require.NoError(t, os.WriteFile(cfgFile, []byte(content), 0644))
+
+	cfg, err := Load(cfgFile)
+	require.NoError(t, err)
+
+	require.Len(t, cfg.Run, 2)
+	assert.Equal(t, "files", cfg.Run[0].Group)
+	assert.Equal(t, "java", cfg.Run[0].Name)
+	assert.Equal(t, "./src", cfg.Run[0].Config.Get("root-dir"))
+	assert.Equal(t, "MY_SCHEMA", cfg.Run[1].Config.Get("schema"))
 }

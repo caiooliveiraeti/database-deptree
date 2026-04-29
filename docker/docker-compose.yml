@@ -1,25 +1,144 @@
-version: '3.8'
-
 services:
-  neo4j:
-    image: neo4j:4.4
-    container_name: neo4j
-    environment:
-      - NEO4J_AUTH=neo4j/test
-    volumes:
-      - ./init:/var/lib/neo4j/conf
-    ports:
-      - 7474:7474
-      - 7687:7687
 
-  app:
-    build: .
-    container_name: go-neo4j-app
-    depends_on:
-      - neo4j
+  # ─── Graph database ──────────────────────────────────────────────────────────
+  neo4j:
+    image: neo4j:5.25.1
+    container_name: deptree-neo4j
     environment:
-      ORACLE_USER: your_oracle_user
-      ORACLE_PASSWORD: your_oracle_password
-      ORACLE_DSN: your_oracle_dsn
+      NEO4J_AUTH: neo4j/deptree123
+    ports:
+      - "7474:7474"   # Neo4j Browser → http://localhost:7474
+      - "7687:7687"   # Bolt
     volumes:
-      - ./java:/app/java
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Source samples ──────────────────────────────────────────────────────────
+
+  # One-shot init: clones spring-petclinic into a shared volume.
+  # Skips clone if the repo already exists (safe to restart compose).
+  petclinic-init:
+    image: alpine/git:2.45.2
+    container_name: deptree-petclinic-init
+    volumes:
+      - src-java:/workspace
+    entrypoint: >
+      sh -c "
+        if [ ! -d /workspace/spring-petclinic/.git ]; then
+          echo '>>> cloning spring-petclinic...';
+          git clone --depth=1 https://github.com/spring-projects/spring-petclinic.git /workspace/spring-petclinic;
+        else
+          echo '>>> spring-petclinic already present, skipping clone';
+        fi
+      "
+
+  # ─── deptree ─────────────────────────────────────────────────────────────────
+
+  # Use this service to run any deptree command inside the compose network.
+  #
+  # Examples:
+  #   docker compose run --rm deptree files java
+  #   docker compose run --rm deptree files java --root-dir=/workspace/spring-petclinic/src
+  #   docker compose run --rm deptree all
+  #   docker compose run --rm deptree files java --dry-run
+  deptree:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: deptree-app
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      petclinic-init:
+        condition: service_completed_successfully
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: deptree123
+    volumes:
+      - src-java:/workspace
+      - ./deptree.docker.yaml:/app/deptree.yaml:ro
+    working_dir: /app
+    entrypoint: ["deptree"]
+    command: ["files", "java", "--root-dir=/workspace/spring-petclinic/src/main/java"]
+
+  # Web UI — visualize the graph at http://localhost:8080
+  #   docker compose up deptree-serve
+  deptree-serve:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: deptree-serve
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: deptree123
+    volumes:
+      - ./deptree.docker.yaml:/app/deptree.yaml:ro
+    working_dir: /app
+    ports:
+      - "8090:8090"
+    entrypoint: ["deptree"]
+    command: ["serve", "--port=8090"]
+
+  # ─── Oracle Free (optional — use: docker compose --profile oracle up) ───────
+  #
+  # Official Oracle Database Free 23ai from Oracle Container Registry.
+  # No login required — pull works without authentication.
+  #
+  # First startup takes ~3 minutes to initialize the database.
+  # PDB name: FREEPDB1 | CDB name: FREE
+  oracle:
+    profiles: ["oracle"]
+    image: container-registry.oracle.com/database/free:23.6.0.0-lite
+    container_name: deptree-oracle
+    environment:
+      ORACLE_PWD: oracle          # password for SYS, SYSTEM and PDBADMIN
+      ORACLE_CHARACTERSET: AL32UTF8
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/oracle/checkDBStatus.sh"]
+      interval: 20s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+
+  # Runs after Oracle is healthy — analyze its schema and push to Neo4j.
+  deptree-oracle:
+    profiles: ["oracle"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: deptree-oracle-run
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      oracle:
+        condition: service_healthy
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: deptree123
+    entrypoint: ["deptree"]
+    command:
+      - database
+      - oracle
+      - --user=system
+      - --password=oracle
+      - --dsn=oracle:1521/FREEPDB1
+      - --schema=SYSTEM
+
+volumes:
+  neo4j-data:
+  src-java:
+  oracle-data:
