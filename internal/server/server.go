@@ -27,6 +27,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	mux.HandleFunc("/api/graph", s.handleGraph)
 	mux.HandleFunc("/api/meta", s.handleMeta)
+	mux.HandleFunc("/api/traverse", s.handleTraverse)
+	mux.HandleFunc("/api/nodes/search", s.handleNodeSearch)
 	mux.Handle("/", http.FileServer(http.FS(s.webFS)))
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -99,6 +101,55 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	}())
 
 	writeJSON(w, map[string]any{"labels": labels, "rels": rels, "systems": systems})
+}
+
+// handleTraverse returns the subgraph reachable from a node within a given depth.
+// Query params: from (node ID), depth (1-5), direction (outgoing|incoming|both)
+func (s *Server) handleTraverse(w http.ResponseWriter, r *http.Request) {
+	q := store.TraversalQuery{
+		StartNodeID: r.URL.Query().Get("from"),
+		Direction:   r.URL.Query().Get("direction"),
+	}
+	if q.StartNodeID == "" {
+		http.Error(w, "from is required", http.StatusBadRequest)
+		return
+	}
+	if q.Direction == "" {
+		q.Direction = "outgoing"
+	}
+	depth := 2
+	if d := r.URL.Query().Get("depth"); d != "" {
+		fmt.Sscanf(d, "%d", &depth)
+	}
+	q.Depth = depth
+
+	data, err := s.st.QueryTraversal(r.Context(), q)
+	if err != nil {
+		slog.Error("traversal query failed", "from", q.StartNodeID, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
+}
+
+// handleNodeSearch returns up to 20 nodes matching the search term (for autocomplete).
+// Query params: q (search term)
+func (s *Server) handleNodeSearch(w http.ResponseWriter, r *http.Request) {
+	term := r.URL.Query().Get("q")
+	if term == "" {
+		writeJSON(w, []store.NodeData{})
+		return
+	}
+	nodes, err := s.st.SearchNodes(r.Context(), term)
+	if err != nil {
+		slog.Error("node search failed", "term", term, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if nodes == nil {
+		nodes = []store.NodeData{}
+	}
+	writeJSON(w, nodes)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

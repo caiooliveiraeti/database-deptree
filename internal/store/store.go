@@ -15,7 +15,16 @@ import (
 type Store interface {
 	Save(ctx context.Context, edges []graph.Edge) error
 	QueryGraph(ctx context.Context, filter GraphFilter) (GraphData, error)
+	QueryTraversal(ctx context.Context, q TraversalQuery) (GraphData, error)
+	SearchNodes(ctx context.Context, term string) ([]NodeData, error)
 	Close() error
+}
+
+// TraversalQuery defines a depth-limited graph traversal from a starting node.
+type TraversalQuery struct {
+	StartNodeID string
+	Depth       int    // 1..5
+	Direction   string // "outgoing" | "incoming" | "both"
 }
 
 // GraphFilter narrows which nodes and edges are returned by QueryGraph.
@@ -148,6 +157,134 @@ func (s *Neo4jStore) QueryGraph(ctx context.Context, filter GraphFilter) (GraphD
 		nodeSlice = append(nodeSlice, n)
 	}
 	return GraphData{Nodes: nodeSlice, Edges: edges}, nil
+}
+
+func (s *Neo4jStore) QueryTraversal(ctx context.Context, q TraversalQuery) (GraphData, error) {
+	if q.Depth < 1 {
+		q.Depth = 1
+	}
+	if q.Depth > 5 {
+		q.Depth = 5
+	}
+
+	var matchPattern string
+	switch q.Direction {
+	case "incoming":
+		matchPattern = "<-[*1..%d]-"
+	case "both":
+		matchPattern = "-[*1..%d]-"
+	default: // outgoing
+		matchPattern = "-[*1..%d]->"
+	}
+	traverseRel := fmt.Sprintf(matchPattern, q.Depth)
+
+	cypher := fmt.Sprintf(`
+		MATCH (start {id: $startId})
+		OPTIONAL MATCH (start)%s(n)
+		WITH start, collect(DISTINCT n) AS reached
+		WITH reached + [start] AS allNodes
+		UNWIND allNodes AS node
+		WITH collect(DISTINCT {
+		  id: node.id, label: labels(node)[0],
+		  name: coalesce(node.name, node.id),
+		  system: coalesce(node.system, '')
+		}) AS nodes, allNodes
+		UNWIND allNodes AS src
+		OPTIONAL MATCH (src)-[r]->(dst) WHERE dst IN allNodes
+		RETURN nodes, collect(DISTINCT {source: src.id, target: dst.id, rel: type(r)}) AS edges
+	`, traverseRel)
+
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx, cypher, map[string]any{"startId": q.StartNodeID})
+	if err != nil {
+		return GraphData{}, fmt.Errorf("traversal query: %w", err)
+	}
+
+	if !result.Next(ctx) {
+		return GraphData{Nodes: []NodeData{}, Edges: []EdgeData{}}, result.Err()
+	}
+
+	rec := result.Record()
+	rawNodes, _ := rec.Get("nodes")
+	rawEdges, _ := rec.Get("edges")
+
+	return parseTraversalResult(rawNodes, rawEdges), nil
+}
+
+func parseTraversalResult(rawNodes, rawEdges any) GraphData {
+	var nodes []NodeData
+	if ns, ok := rawNodes.([]any); ok {
+		for _, n := range ns {
+			if m, ok := n.(map[string]any); ok {
+				nodes = append(nodes, NodeData{
+					ID:     str(m["id"]),
+					Label:  str(m["label"]),
+					Name:   str(m["name"]),
+					System: str(m["system"]),
+				})
+			}
+		}
+	}
+
+	var edges []EdgeData
+	if es, ok := rawEdges.([]any); ok {
+		for _, e := range es {
+			if m, ok := e.(map[string]any); ok {
+				src, tgt, rel := str(m["source"]), str(m["target"]), str(m["rel"])
+				if src == "" || tgt == "" || rel == "" {
+					continue // OPTIONAL MATCH returned null relationship
+				}
+				edges = append(edges, EdgeData{Source: src, Target: tgt, Rel: rel})
+			}
+		}
+	}
+
+	if nodes == nil {
+		nodes = []NodeData{}
+	}
+	if edges == nil {
+		edges = []EdgeData{}
+	}
+	return GraphData{Nodes: nodes, Edges: edges}
+}
+
+func (s *Neo4jStore) SearchNodes(ctx context.Context, term string) ([]NodeData, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+
+	cypher := `
+		MATCH (n)
+		WHERE toLower(n.name) CONTAINS toLower($term)
+		   OR toLower(n.id)   CONTAINS toLower($term)
+		RETURN n.id AS id, labels(n)[0] AS label,
+		       coalesce(n.name, n.id) AS name,
+		       coalesce(n.system, '') AS system
+		ORDER BY n.name
+		LIMIT 20
+	`
+
+	result, err := session.Run(ctx, cypher, map[string]any{"term": term})
+	if err != nil {
+		return nil, fmt.Errorf("searching nodes: %w", err)
+	}
+
+	var nodes []NodeData
+	for result.Next(ctx) {
+		rec := result.Record()
+		id, _ := rec.Get("id")
+		label, _ := rec.Get("label")
+		name, _ := rec.Get("name")
+		system, _ := rec.Get("system")
+		nodes = append(nodes, NodeData{
+			ID:     str(id),
+			Label:  str(label),
+			Name:   str(name),
+			System: str(system),
+		})
+	}
+	return nodes, result.Err()
 }
 
 func mergeEdge(ctx context.Context, tx neo4j.ManagedTransaction, e graph.Edge) error {

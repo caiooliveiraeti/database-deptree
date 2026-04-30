@@ -5,10 +5,10 @@ import (
 	"io/fs"
 )
 
-//go:embed index.html
+//go:embed index.html html.js api.js colors.js App.js components
 var files embed.FS
 
-// FS returns the embedded web assets as an fs.FS rooted at the web directory.
+// FS returns the embedded web assets rooted at this package directory.
 func FS() fs.FS {
 	return files
 }
