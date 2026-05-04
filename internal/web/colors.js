@@ -17,6 +17,8 @@ export const REL_COLORS = {
   QUERIES:      '#E67E22',
   USES_TABLE:   '#4A90D9',
   DEPENDS_ON:   '#E74C3C',
+  READS:        '#00BCD4',
+  MAPS_TO:      '#78909C',
   CALLS:        '#E91E63',
   CONTAINS:     '#F1C40F',
   ONE_TO_MANY:  '#1ABC9C',

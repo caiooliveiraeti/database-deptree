@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/caiooliveiraeti/database-deptree/internal/graph"
 	_ "github.com/sijms/go-ora/v2" // registers the "oracle" driver
@@ -34,6 +35,44 @@ func New(user, password, dsn, schema string) *Analyzer {
 
 func (a *Analyzer) Name() string { return "oracle" }
 
+func oracleRel(srcType, dstType string) string {
+	switch srcType {
+	case "PACKAGE":
+		switch dstType {
+		case "PROCEDURE", "FUNCTION":
+			return "CONTAINS"
+		}
+	case "PROCEDURE", "FUNCTION":
+		switch dstType {
+		case "PROCEDURE", "FUNCTION":
+			return "CALLS"
+		case "TABLE", "VIEW", "SYNONYM":
+			return "USES_TABLE"
+		}
+	case "TRIGGER":
+		switch dstType {
+		case "TABLE", "VIEW", "SYNONYM":
+			return "USES_TABLE"
+		}
+	case "VIEW":
+		switch dstType {
+		case "TABLE", "VIEW", "SYNONYM":
+			return "READS"
+		}
+	}
+	return "DEPENDS_ON"
+}
+
+// normalizeOracleType maps Oracle multi-word type names to valid Neo4j labels.
+// "PACKAGE BODY" → "PACKAGE" (body and spec are the same logical object).
+// Any remaining spaces are replaced with underscores as a safety net.
+func normalizeOracleType(t string) string {
+	if t == "PACKAGE BODY" {
+		return "PACKAGE"
+	}
+	return strings.ReplaceAll(t, " ", "_")
+}
+
 func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
 	db := a.DB
 	if db == nil {
@@ -51,6 +90,9 @@ func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
 	}
 	defer rows.Close()
 
+	type viewEntry struct{ owner, name string }
+	referencedViews := map[string]viewEntry{} // key = "owner.name" lowercased
+
 	var edges []graph.Edge
 	for rows.Next() {
 		if ctx.Err() != nil {
@@ -62,10 +104,32 @@ func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 
+		typ    = normalizeOracleType(typ)
+		refType = normalizeOracleType(refType)
+
 		src := graph.NewNode(typ, owner+"."+name, map[string]any{"owner": owner, "shortName": name})
 		dst := graph.NewNode(refType, refOwner+"."+refName, map[string]any{"owner": refOwner, "shortName": refName})
-		edges = append(edges, graph.NewEdge(src, dst, "DEPENDS_ON", nil))
+		edges = append(edges, graph.NewEdge(src, dst, oracleRel(typ, refType), nil))
+
+		// Collect VIEWs that are actively referenced (as targets) within the analyzed schema.
+		// These need a MAPS_TO bridge so Java TABLE nodes can reach the actual Oracle VIEW.
+		if refType == "VIEW" && strings.EqualFold(refOwner, a.Schema) {
+			key := strings.ToLower(refOwner + "." + refName)
+			referencedViews[key] = viewEntry{refOwner, refName}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
-	return edges, rows.Err()
+	// Emit MAPS_TO edges bridging the Java TABLE node(s) to the actual Oracle VIEW node.
+	for _, v := range referencedViews {
+		view := graph.NewNode("VIEW", v.owner+"."+v.name, map[string]any{"owner": v.owner, "shortName": v.name})
+		// Unqualified: Java without --db-schema
+		edges = append(edges, graph.NewEdge(graph.NewNode("TABLE", v.name, nil), view, "MAPS_TO", nil))
+		// Schema-qualified: Java with --db-schema
+		edges = append(edges, graph.NewEdge(graph.NewNode("TABLE", v.owner+"."+v.name, nil), view, "MAPS_TO", nil))
+	}
+
+	return edges, nil
 }
