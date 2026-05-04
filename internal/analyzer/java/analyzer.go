@@ -18,7 +18,7 @@ var (
 	reTableSchema = regexp.MustCompile(`@Table\s*\([^)]*schema\s*=\s*"([^"]*)"`)
 	reClass       = regexp.MustCompile(`public\s+(?:class|interface)\s+([a-zA-Z_][a-zA-Z_0-9]*)`)
 	reRepository  = regexp.MustCompile(`extends\s+(?:JpaRepository|CrudRepository)<([a-zA-Z_][a-zA-Z_0-9]*),`)
-	reQuery       = regexp.MustCompile(`@Query\("([^"]*)"\)`)
+	reQuery       = regexp.MustCompile(`@Query\s*\(\s*(?:value\s*=\s*)?"([^"]+)"([^)]*)`)
 	reNamedQuery  = regexp.MustCompile(`@NamedQuery\s*\(\s*name\s*=\s*"[^"]*"\s*,\s*query\s*=\s*"([^"]*)"`)
 	reProcedure   = regexp.MustCompile(`@Procedure\s*\(\s*(?:name\s*=\s*)?"([^"]*)"`)
 	reFromTable   = regexp.MustCompile(`(?i)FROM\s+([a-zA-Z_][a-zA-Z_0-9]*)`)
@@ -82,7 +82,7 @@ func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
 	var edges []graph.Edge
 	var entities []entityInfo
 
-	// Pass 1 — entity/table edges + repositories.
+	// Pass 1a — collect entities and emit STORED_IN edges.
 	for _, f := range files {
 		if reEntity.MatchString(f.content) {
 			info := extractEntityInfo(f.content, a.DBSchema)
@@ -91,15 +91,19 @@ func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
 			dst := graph.NewNode("TABLE", info.qualifiedTable, nil)
 			edges = append(edges, graph.NewEdge(src, dst, "STORED_IN", nil))
 		}
-		if reRepository.MatchString(f.content) {
-			edges = append(edges, extractRepositoryEdges(f.path, f.content)...)
-		}
 	}
 
-	// Build className → qualifiedTable map for join resolution.
+	// Build className → qualifiedTable map (used by repositories and join edges).
 	classToTable := make(map[string]string, len(entities))
 	for _, e := range entities {
 		classToTable[e.className] = e.qualifiedTable
+	}
+
+	// Pass 1b — repositories (classToTable must be ready to resolve JPQL entity refs).
+	for _, f := range files {
+		if reRepository.MatchString(f.content) {
+			edges = append(edges, extractRepositoryEdges(f.path, f.content, classToTable)...)
+		}
 	}
 
 	// Pass 2 — JPA join edges (TABLE → TABLE).
@@ -186,7 +190,7 @@ func toSnake(s string) string {
 	return strings.ToUpper(b.String())
 }
 
-func extractRepositoryEdges(path, content string) []graph.Edge {
+func extractRepositoryEdges(path, content string, classToTable map[string]string) []graph.Edge {
 	repoMatch := reRepository.FindStringSubmatch(content)
 	if repoMatch == nil {
 		return nil
@@ -200,10 +204,11 @@ func extractRepositoryEdges(path, content string) []graph.Edge {
 	edges := []graph.Edge{graph.NewEdge(repo, entity, "MANAGES", nil)}
 
 	for _, m := range reQuery.FindAllStringSubmatch(content, -1) {
-		edges = append(edges, queryEdges(repo, m[1])...)
+		isNative := strings.Contains(m[2], "nativeQuery") && strings.Contains(m[2], "true")
+		edges = append(edges, queryEdges(repo, m[1], isNative, classToTable)...)
 	}
 	for _, m := range reNamedQuery.FindAllStringSubmatch(content, -1) {
-		edges = append(edges, queryEdges(repo, m[1])...)
+		edges = append(edges, queryEdges(repo, m[1], false, classToTable)...)
 	}
 	for _, m := range reProcedure.FindAllStringSubmatch(content, -1) {
 		proc := graph.NewNode("PROCEDURE", m[1], nil)
@@ -213,13 +218,23 @@ func extractRepositoryEdges(path, content string) []graph.Edge {
 	return edges
 }
 
-func queryEdges(repo graph.Node, sql string) []graph.Edge {
+func queryEdges(repo graph.Node, sql string, isNative bool, classToTable map[string]string) []graph.Edge {
 	query := graph.NewNode("QUERY", sql, nil)
 	edges := []graph.Edge{graph.NewEdge(repo, query, "QUERIES", nil)}
 
 	for _, m := range reFromTable.FindAllStringSubmatch(sql, -1) {
-		table := graph.NewNode("TABLE", m[1], nil)
-		edges = append(edges, graph.NewEdge(query, table, "USES_TABLE", nil))
+		name := m[1]
+		if isNative {
+			table := graph.NewNode("TABLE", name, nil)
+			edges = append(edges, graph.NewEdge(query, table, "USES_TABLE", nil))
+		} else {
+			// JPQL: resolve entity class name to the actual table via classToTable.
+			// Skip if the entity is not found (external dependency or typo).
+			if tableName, ok := classToTable[name]; ok {
+				table := graph.NewNode("TABLE", tableName, nil)
+				edges = append(edges, graph.NewEdge(query, table, "USES_TABLE", nil))
+			}
+		}
 	}
 	for _, m := range reCallProc.FindAllStringSubmatch(sql, -1) {
 		proc := graph.NewNode("PROCEDURE", m[1], nil)

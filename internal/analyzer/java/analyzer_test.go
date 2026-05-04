@@ -50,6 +50,13 @@ public interface OwnerRepository extends JpaRepository<Owner, Long> {
 }
 `
 
+const nativeRepoFixture = `
+public interface OwnerRepository extends JpaRepository<Owner, Long> {
+    @Query(value = "SELECT * FROM owners WHERE id = ?1", nativeQuery = true)
+    List<Owner> findByIdNative(Long id);
+}
+`
+
 func TestAnalyze_StoredIn(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Owner.java"), []byte(ownerFixture), 0644))
@@ -96,6 +103,32 @@ func TestAnalyze_Repository(t *testing.T) {
 	assert.True(t, rels["MANAGES"])
 	assert.True(t, rels["QUERIES"])
 	assert.True(t, rels["CALLS"])
+
+	// JPQL FROM Owner must resolve to TABLE:owners (not a TABLE node named "Owner")
+	assert.True(t, rels["USES_TABLE"], "JPQL query should resolve entity to USES_TABLE")
+	assert.False(t, rels["USES_ENTITY"], "JPQL query must not produce USES_ENTITY")
+	for _, e := range edges {
+		if e.Relationship == "USES_TABLE" {
+			assert.Equal(t, "TABLE:owners", e.Target.ID, "JPQL FROM Owner must resolve to TABLE:owners")
+		}
+	}
+}
+
+func TestAnalyze_NativeQuery(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Owner.java"), []byte(ownerFixture), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "OwnerRepository.java"), []byte(nativeRepoFixture), 0644))
+
+	edges, err := New(tmpDir, "").Analyze(context.Background())
+	require.NoError(t, err)
+
+	rels := relSet(edges)
+	assert.True(t, rels["USES_TABLE"], "native query should produce USES_TABLE")
+	for _, e := range edges {
+		if e.Relationship == "USES_TABLE" {
+			assert.Equal(t, "TABLE:owners", e.Target.ID, "native FROM owners must point to TABLE:owners")
+		}
+	}
 }
 
 func TestAnalyze_EmptyDir(t *testing.T) {
