@@ -28,7 +28,8 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("/api/graph", s.handleGraph)
 	mux.HandleFunc("/api/meta", s.handleMeta)
 	mux.HandleFunc("/api/traverse", s.handleTraverse)
-	mux.HandleFunc("/api/nodes/search", s.handleNodeSearch)
+	mux.HandleFunc("GET /api/nodes/search", s.handleNodeSearch)
+	mux.HandleFunc("GET /api/nodes/{id}", s.handleNodeDetail)
 	mux.Handle("/", http.FileServer(http.FS(s.webFS)))
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -150,6 +151,21 @@ func (s *Server) handleNodeSearch(w http.ResponseWriter, r *http.Request) {
 		nodes = []store.NodeData{}
 	}
 	writeJSON(w, nodes)
+}
+
+func (s *Server) handleNodeDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	detail, err := s.st.GetNode(r.Context(), id)
+	if err != nil {
+		slog.Error("get node failed", "id", id, "err", err)
+		if strings.Contains(err.Error(), "node not found") {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, detail)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

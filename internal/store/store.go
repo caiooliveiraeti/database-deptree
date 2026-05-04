@@ -17,6 +17,7 @@ type Store interface {
 	QueryGraph(ctx context.Context, filter GraphFilter) (GraphData, error)
 	QueryTraversal(ctx context.Context, q TraversalQuery) (GraphData, error)
 	SearchNodes(ctx context.Context, term string) ([]NodeData, error)
+	GetNode(ctx context.Context, id string) (NodeDetail, error)
 	Close() error
 }
 
@@ -46,6 +47,14 @@ type NodeData struct {
 	Label  string `json:"label"`
 	Name   string `json:"name"`
 	System string `json:"system,omitempty"`
+}
+
+type NodeDetail struct {
+	ID         string         `json:"id"`
+	Label      string         `json:"label"`
+	Name       string         `json:"name"`
+	System     string         `json:"system,omitempty"`
+	Properties map[string]any `json:"properties"`
 }
 
 type EdgeData struct {
@@ -285,6 +294,55 @@ func (s *Neo4jStore) SearchNodes(ctx context.Context, term string) ([]NodeData, 
 		})
 	}
 	return nodes, result.Err()
+}
+
+func (s *Neo4jStore) GetNode(ctx context.Context, id string) (NodeDetail, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx,
+		`MATCH (n {id: $id}) RETURN labels(n)[0] AS label, properties(n) AS props LIMIT 1`,
+		map[string]any{"id": id},
+	)
+	if err != nil {
+		return NodeDetail{}, fmt.Errorf("get node query: %w", err)
+	}
+	if !result.Next(ctx) {
+		if e := result.Err(); e != nil {
+			return NodeDetail{}, fmt.Errorf("get node result: %w", e)
+		}
+		return NodeDetail{}, fmt.Errorf("node not found: %s", id)
+	}
+
+	rec := result.Record()
+	label, _ := rec.Get("label")
+	rawProps, _ := rec.Get("props")
+
+	props, _ := rawProps.(map[string]any)
+	if props == nil {
+		props = map[string]any{}
+	}
+
+	name := str(props["name"])
+	if name == "" {
+		name = id
+	}
+
+	skip := map[string]bool{"id": true, "name": true, "system": true}
+	filtered := make(map[string]any, len(props))
+	for k, v := range props {
+		if !skip[k] {
+			filtered[k] = v
+		}
+	}
+
+	return NodeDetail{
+		ID:         id,
+		Label:      str(label),
+		Name:       name,
+		System:     str(props["system"]),
+		Properties: filtered,
+	}, result.Err()
 }
 
 func mergeEdge(ctx context.Context, tx neo4j.ManagedTransaction, e graph.Edge) error {

@@ -22,3 +22,7 @@ export async function searchNodes(term) {
   const params = new URLSearchParams({ q: term });
   return json('/api/nodes/search?' + params);
 }
+
+export async function fetchNodeDetail(nodeId) {
+  return json('/api/nodes/' + encodeURIComponent(nodeId));
+}

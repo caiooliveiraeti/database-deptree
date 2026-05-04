@@ -1,6 +1,6 @@
 import { html } from 'htm/react';
 import { useState, useEffect, useMemo } from 'react';
-import { fetchMeta, fetchFullGraph, fetchTraversal } from './api.js';
+import { fetchMeta, fetchFullGraph, fetchTraversal, fetchNodeDetail } from './api.js';
 import Topbar from './components/Topbar.js';
 import Sidebar from './components/Sidebar.js';
 import Graph from './components/Graph.js';
@@ -14,6 +14,8 @@ export default function App() {
   const [depth, setDepth] = useState(2);
   const [direction, setDirection] = useState('outgoing');
   const [loading, setLoading] = useState(false);
+  const [nodeDetail, setNodeDetail] = useState(null);
+  const [nodeDetailLoading, setNodeDetailLoading] = useState(false);
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({ labels: new Set(), rels: new Set(), systems: new Set() });
 
@@ -45,6 +47,8 @@ export default function App() {
   const showFullGraph = () => {
     setFocalNode(null);
     setSelectedNode(null);
+    setNodeDetail(null);
+    setNodeDetailLoading(false);
     setLoading(true);
     fetchFullGraph()
       .then(setRawGraph)
@@ -80,11 +84,24 @@ export default function App() {
 
   const handleNodeSelect = (node) => {
     setSelectedNode(node);
+    if (node) {
+      setNodeDetail(null);
+      setNodeDetailLoading(true);
+      fetchNodeDetail(node.id)
+        .then(setNodeDetail)
+        .catch(() => setNodeDetail(null))
+        .finally(() => setNodeDetailLoading(false));
+    } else {
+      setNodeDetail(null);
+      setNodeDetailLoading(false);
+    }
   };
 
   const handleExploreFrom = (node) => {
     setFocalNode(node);
     setSelectedNode(null);
+    setNodeDetail(null);
+    setNodeDetailLoading(false);
   };
 
   const stats = { nodes: graphData.nodes.length, edges: graphData.edges.length };
@@ -133,7 +150,9 @@ export default function App() {
         ${selectedNode && html`
           <${DetailPanel}
             node=${selectedNode}
-            onClose=${() => setSelectedNode(null)}
+            nodeDetail=${nodeDetail}
+            nodeDetailLoading=${nodeDetailLoading}
+            onClose=${() => { setSelectedNode(null); setNodeDetail(null); }}
             onExploreFrom=${handleExploreFrom}
             onShowFullGraph=${showFullGraph}
           />

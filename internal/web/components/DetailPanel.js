@@ -1,8 +1,15 @@
 import { html } from 'htm/react';
 import { nodeColor } from '../colors.js';
 
-export default function DetailPanel({ node, onClose, onExploreFrom, onShowFullGraph }) {
+const PROP_LABELS = { owner: 'Schema', shortName: 'Short Name', file: 'File' };
+const propLabel = (k) => PROP_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+
+export default function DetailPanel({ node, nodeDetail, nodeDetailLoading, onClose, onExploreFrom, onShowFullGraph }) {
   if (!node) return null;
+
+  const extraProps = nodeDetail
+    ? Object.entries(nodeDetail.properties).filter(([, v]) => v !== null && v !== '')
+    : [];
 
   return html`
     <div class="detail-panel">
@@ -36,6 +43,22 @@ export default function DetailPanel({ node, onClose, onExploreFrom, onShowFullGr
           Full graph
         </button>
       </div>
+
+      ${nodeDetailLoading && html`<div class="detail-props-loading">Loading…</div>`}
+
+      ${!nodeDetailLoading && extraProps.length > 0 && html`
+        <div class="detail-divider" />
+        <table class="detail-props">
+          <tbody>
+            ${extraProps.map(([k, v]) => html`
+              <tr key=${k}>
+                <td class="prop-key">${propLabel(k)}</td>
+                <td class="prop-val">${String(v)}</td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      `}
     </div>
   `;
 }
