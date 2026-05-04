@@ -88,13 +88,6 @@ services:
     entrypoint: ["deptree"]
     command: ["serve", "--port=8090"]
 
-  # ─── Oracle Free (optional — use: docker compose --profile oracle up) ───────
-  #
-  # Official Oracle Database Free 23ai from Oracle Container Registry.
-  # No login required — pull works without authentication.
-  #
-  # First startup takes ~3 minutes to initialize the database.
-  # PDB name: FREEPDB1 | CDB name: FREE
   oracle:
     profiles: ["oracle"]
     image: container-registry.oracle.com/database/free:23.6.0.0-lite
@@ -112,8 +105,20 @@ services:
       timeout: 10s
       retries: 20
       start_period: 180s
+  oracle-petclinic-init:
+    profiles: ["oracle"]
+    image: container-registry.oracle.com/database/free:23.6.0.0-lite
+    container_name: deptree-oracle-petclinic-init
+    depends_on:
+      oracle:
+        condition: service_healthy
+    volumes:
+      - ./oracle-petclinic.sql:/tmp/petclinic.sql:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - sqlplus -S system/oracle@//oracle:1521/FREEPDB1 @/tmp/petclinic.sql
+    restart: "no"
 
-  # Runs after Oracle is healthy — analyze its schema and push to Neo4j.
   deptree-oracle:
     profiles: ["oracle"]
     build:
@@ -123,8 +128,8 @@ services:
     depends_on:
       neo4j:
         condition: service_healthy
-      oracle:
-        condition: service_healthy
+      oracle-petclinic-init:
+        condition: service_completed_successfully
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
