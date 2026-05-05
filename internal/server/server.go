@@ -13,9 +13,9 @@ import (
 )
 
 type Server struct {
-	st     store.Store
-	webFS  fs.FS
-	port   int
+	st    store.Store
+	webFS fs.FS
+	port  int
 }
 
 func New(st store.Store, webFS fs.FS, port int) *Server {

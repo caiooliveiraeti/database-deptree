@@ -107,4 +107,3 @@ func runDry(ctx context.Context, a analyzer.Analyzer, f analyzer.Factory) error 
 	slog.Info("dry-run complete", "analyzer", a.Name(), "edges", len(edges))
 	return nil
 }
-

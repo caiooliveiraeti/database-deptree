@@ -104,7 +104,7 @@ func (a *Analyzer) Analyze(ctx context.Context) ([]graph.Edge, error) {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 
-		typ    = normalizeOracleType(typ)
+		typ = normalizeOracleType(typ)
 		refType = normalizeOracleType(refType)
 
 		src := graph.NewNode(typ, owner+"."+name, map[string]any{"owner": owner, "shortName": name})

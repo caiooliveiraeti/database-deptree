@@ -18,9 +18,9 @@ type Neo4jConfig struct {
 // AnalyzerRun is one entry in the "run" section of deptree.yaml.
 // Group and Name select the registered analyzer; the remaining keys are its flags.
 type AnalyzerRun struct {
-	Group  string            `yaml:"group"`
-	Name   string            `yaml:"name"`
-	Config analyzer.Config   `yaml:"config"`
+	Group  string          `yaml:"group"`
+	Name   string          `yaml:"name"`
+	Config analyzer.Config `yaml:"config"`
 }
 
 type fileConfig struct {

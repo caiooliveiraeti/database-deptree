@@ -37,9 +37,9 @@ var (
 
 // entityInfo holds what we know about a JPA entity after the first scan pass.
 type entityInfo struct {
-	className     string
+	className      string
 	qualifiedTable string // schema-qualified table name, e.g. "my_schema.owners" or just "owners"
-	content       string  // kept for join extraction in pass 2
+	content        string // kept for join extraction in pass 2
 }
 
 type Analyzer struct {
