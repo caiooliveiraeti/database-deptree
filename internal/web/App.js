@@ -1,10 +1,11 @@
 import { html } from 'htm/react';
 import { useState, useEffect, useMemo } from 'react';
-import { fetchMeta, fetchFullGraph, fetchTraversal, fetchNodeDetail } from './api.js';
+import { fetchMeta, fetchFullGraph, fetchTraversal, fetchNodeDetail, fetchInsights } from './api.js';
 import Topbar from './components/Topbar.js';
 import Sidebar from './components/Sidebar.js';
 import Graph from './components/Graph.js';
 import DetailPanel from './components/DetailPanel.js';
+import InsightsPanel from './components/InsightsPanel.js';
 
 export default function App() {
   const [meta, setMeta] = useState({ labels: [], rels: [], systems: [] });
@@ -17,6 +18,9 @@ export default function App() {
   const [nodeDetail, setNodeDetail] = useState(null);
   const [nodeDetailLoading, setNodeDetailLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showInsights, setShowInsights] = useState(false);
+  const [insightsData, setInsightsData] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const [filters, setFilters] = useState({ labels: new Set(), rels: new Set(), systems: new Set() });
 
   // Load metadata once on mount
@@ -104,6 +108,25 @@ export default function App() {
     setNodeDetailLoading(false);
   };
 
+  const loadInsights = () => {
+    setInsightsLoading(true);
+    fetchInsights()
+      .then(setInsightsData)
+      .catch(() => setInsightsData(null))
+      .finally(() => setInsightsLoading(false));
+  };
+
+  const handleToggleInsights = () => {
+    if (showInsights) {
+      setShowInsights(false);
+    } else {
+      setShowInsights(true);
+      setSelectedNode(null);
+      setNodeDetail(null);
+      if (!insightsData) loadInsights();
+    }
+  };
+
   const stats = { nodes: graphData.nodes.length, edges: graphData.edges.length };
 
   return html`
@@ -111,6 +134,8 @@ export default function App() {
       <${Topbar}
         onNodeSelect=${handleSearchSelect}
         onShowFullGraph=${showFullGraph}
+        onToggleInsights=${handleToggleInsights}
+        insightsActive=${showInsights}
         stats=${focalNode || rawGraph.nodes.length > 0 ? stats : null}
       />
 
@@ -147,7 +172,7 @@ export default function App() {
           />
         </div>
 
-        ${selectedNode && html`
+        ${selectedNode && !showInsights && html`
           <${DetailPanel}
             node=${selectedNode}
             nodeDetail=${nodeDetail}
@@ -155,6 +180,16 @@ export default function App() {
             onClose=${() => { setSelectedNode(null); setNodeDetail(null); }}
             onExploreFrom=${handleExploreFrom}
             onShowFullGraph=${showFullGraph}
+          />
+        `}
+
+        ${showInsights && html`
+          <${InsightsPanel}
+            data=${insightsData}
+            loading=${insightsLoading}
+            onClose=${() => setShowInsights(false)}
+            onNodeSelect=${(node) => { handleSearchSelect(node); setShowInsights(false); }}
+            onRefresh=${loadInsights}
           />
         `}
       </div>

@@ -18,6 +18,7 @@ type Store interface {
 	QueryTraversal(ctx context.Context, q TraversalQuery) (GraphData, error)
 	SearchNodes(ctx context.Context, term string) ([]NodeData, error)
 	GetNode(ctx context.Context, id string) (NodeDetail, error)
+	QueryInsights(ctx context.Context) (InsightsData, error)
 	Close() error
 }
 
@@ -61,6 +62,35 @@ type EdgeData struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
 	Rel    string `json:"rel"`
+}
+
+// InsightNode is a single result row returned by an insight query.
+type InsightNode struct {
+	ID    string   `json:"id"`
+	Label string   `json:"label"`
+	Name  string   `json:"name"`
+	Count int      `json:"count,omitempty"` // in-degree, procedure count, call depth, etc.
+	Tags  []string `json:"tags,omitempty"`  // related names (systems, entities, procedures)
+}
+
+// InsightsData groups all pre-computed analytical queries for the web UI panel.
+type InsightsData struct {
+	// Entendimento do sistema
+	OrphanEntities []InsightNode `json:"orphan_entities"`
+	NativeQueries  []InsightNode `json:"native_queries"`
+	// Impacto de mudança
+	DualAccess  []InsightNode `json:"dual_access"`
+	MappedViews []InsightNode `json:"mapped_views"`
+	// Refatoração
+	SingleEntityTables []InsightNode `json:"single_entity_tables"`
+	SingleCallerProcs  []InsightNode `json:"single_caller_procs"`
+	UnusedProcs        []InsightNode `json:"unused_procs"`
+	// Modernização / migração
+	Hotspots       []InsightNode `json:"hotspots"`
+	SharedTables   []InsightNode `json:"shared_tables"`
+	HeavyPackages  []InsightNode `json:"heavy_packages"`
+	DeepCallChains []InsightNode `json:"deep_call_chains"`
+	UncoveredProcs []InsightNode `json:"uncovered_procs"`
 }
 
 var reValidIdentifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z_0-9]*$`)
@@ -390,6 +420,202 @@ func validateIdentifier(s string) error {
 		return fmt.Errorf("%q is not a valid Neo4j identifier", s)
 	}
 	return nil
+}
+
+func (s *Neo4jStore) QueryInsights(ctx context.Context) (InsightsData, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+
+	run := func(cypher string, params map[string]any) ([]map[string]any, error) {
+		res, err := session.Run(ctx, cypher, params)
+		if err != nil {
+			return nil, err
+		}
+		var rows []map[string]any
+		for res.Next(ctx) {
+			rec := res.Record()
+			row := make(map[string]any, len(rec.Keys))
+			for _, k := range rec.Keys {
+				v, _ := rec.Get(k)
+				row[k] = v
+			}
+			rows = append(rows, row)
+		}
+		return rows, res.Err()
+	}
+
+	toNode := func(row map[string]any) InsightNode {
+		return InsightNode{
+			ID:    str(row["id"]),
+			Label: str(row["label"]),
+			Name:  str(row["name"]),
+			Count: int(toInt(row["count"])),
+			Tags:  toStrSlice(row["tags"]),
+		}
+	}
+
+	mapRows := func(rows []map[string]any) []InsightNode {
+		out := make([]InsightNode, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, toNode(r))
+		}
+		return out
+	}
+
+	var data InsightsData
+	var err error
+	var rows []map[string]any
+
+	// ── Entendimento ──────────────────────────────────────────────────────────
+
+	rows, err = run(`
+		MATCH (e:ENTITY) WHERE NOT (e)<-[:MANAGES]-()
+		RETURN e.id AS id, 'ENTITY' AS label, coalesce(e.name, e.id) AS name`, nil)
+	if err != nil {
+		return data, fmt.Errorf("orphan_entities: %w", err)
+	}
+	data.OrphanEntities = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (r:REPOSITORY)-[:QUERIES]->(q:QUERY)-[:USES_TABLE]->(t)
+		WHERE q.native = true
+		RETURN DISTINCT q.id AS id, 'QUERY' AS label, coalesce(q.name, q.id) AS name,
+		       collect(DISTINCT coalesce(t.name, t.id)) AS tags`, nil)
+	if err != nil {
+		return data, fmt.Errorf("native_queries: %w", err)
+	}
+	data.NativeQueries = mapRows(rows)
+
+	// ── Impacto ───────────────────────────────────────────────────────────────
+
+	rows, err = run(`
+		MATCH (e:ENTITY)-[:STORED_IN]->(t:TABLE)<-[:USES_TABLE]-(p:PROCEDURE)
+		RETURN DISTINCT t.id AS id, 'TABLE' AS label, coalesce(t.name, t.id) AS name,
+		       collect(DISTINCT coalesce(e.name, e.id)) + collect(DISTINCT coalesce(p.name, p.id)) AS tags`, nil)
+	if err != nil {
+		return data, fmt.Errorf("dual_access: %w", err)
+	}
+	data.DualAccess = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (t:TABLE)-[:MAPS_TO]->(v:VIEW)
+		RETURN v.id AS id, 'VIEW' AS label, coalesce(v.name, v.id) AS name,
+		       [coalesce(t.name, t.id)] AS tags`, nil)
+	if err != nil {
+		return data, fmt.Errorf("mapped_views: %w", err)
+	}
+	data.MappedViews = mapRows(rows)
+
+	// ── Refatoração ───────────────────────────────────────────────────────────
+
+	rows, err = run(`
+		MATCH (e:ENTITY)-[:STORED_IN]->(t:TABLE)
+		WITH t, collect(DISTINCT coalesce(e.name, e.id)) AS ents
+		WHERE size(ents) = 1
+		RETURN t.id AS id, 'TABLE' AS label, coalesce(t.name, t.id) AS name, ents AS tags`, nil)
+	if err != nil {
+		return data, fmt.Errorf("single_entity_tables: %w", err)
+	}
+	data.SingleEntityTables = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (caller)-[:CALLS]->(p:PROCEDURE)
+		WITH p, count(caller) AS c
+		WHERE c = 1
+		RETURN p.id AS id, 'PROCEDURE' AS label, coalesce(p.name, p.id) AS name, c AS count`, nil)
+	if err != nil {
+		return data, fmt.Errorf("single_caller_procs: %w", err)
+	}
+	data.SingleCallerProcs = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (p:PROCEDURE) WHERE NOT ()-[:CALLS]->(p)
+		RETURN p.id AS id, 'PROCEDURE' AS label, coalesce(p.name, p.id) AS name`, nil)
+	if err != nil {
+		return data, fmt.Errorf("unused_procs: %w", err)
+	}
+	data.UnusedProcs = mapRows(rows)
+
+	// ── Modernização ──────────────────────────────────────────────────────────
+
+	rows, err = run(`
+		MATCH (n)<-[r]-()
+		WITH n, count(r) AS d
+		WHERE d > 0
+		RETURN n.id AS id, labels(n)[0] AS label, coalesce(n.name, n.id) AS name, d AS count
+		ORDER BY d DESC LIMIT 10`, nil)
+	if err != nil {
+		return data, fmt.Errorf("hotspots: %w", err)
+	}
+	data.Hotspots = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (app:APPLICATION)-[*1..5]->(t:TABLE)
+		WITH t, collect(DISTINCT coalesce(app.name, app.id)) AS apps
+		WHERE size(apps) > 1
+		RETURN t.id AS id, 'TABLE' AS label, coalesce(t.name, t.id) AS name,
+		       size(apps) AS count, apps AS tags
+		ORDER BY size(apps) DESC`, nil)
+	if err != nil {
+		return data, fmt.Errorf("shared_tables: %w", err)
+	}
+	data.SharedTables = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (pkg:PACKAGE)-[:CONTAINS]->(p)
+		WITH pkg, count(p) AS n
+		RETURN pkg.id AS id, 'PACKAGE' AS label, coalesce(pkg.name, pkg.id) AS name, n AS count
+		ORDER BY n DESC LIMIT 10`, nil)
+	if err != nil {
+		return data, fmt.Errorf("heavy_packages: %w", err)
+	}
+	data.HeavyPackages = mapRows(rows)
+
+	rows, err = run(`
+		MATCH path=(a:PROCEDURE)-[:CALLS*]->(b:PROCEDURE)
+		WITH a, max(length(path)) AS depth
+		RETURN a.id AS id, 'PROCEDURE' AS label, coalesce(a.name, a.id) AS name, depth AS count
+		ORDER BY depth DESC LIMIT 10`, nil)
+	if err != nil {
+		return data, fmt.Errorf("deep_call_chains: %w", err)
+	}
+	data.DeepCallChains = mapRows(rows)
+
+	rows, err = run(`
+		MATCH (p:PROCEDURE)
+		WHERE NOT ()-[:CALLS]->(p) AND NOT (p)<-[:CONTAINS]-()
+		RETURN p.id AS id, 'PROCEDURE' AS label, coalesce(p.name, p.id) AS name`, nil)
+	if err != nil {
+		return data, fmt.Errorf("uncovered_procs: %w", err)
+	}
+	data.UncoveredProcs = mapRows(rows)
+
+	return data, nil
+}
+
+func toInt(v any) int64 {
+	if v == nil {
+		return 0
+	}
+	n, _ := v.(int64)
+	return n
+}
+
+func toStrSlice(v any) []string {
+	if v == nil {
+		return nil
+	}
+	raw, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func str(v any) string {

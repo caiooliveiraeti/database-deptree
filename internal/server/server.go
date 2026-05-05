@@ -30,6 +30,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("/api/traverse", s.handleTraverse)
 	mux.HandleFunc("GET /api/nodes/search", s.handleNodeSearch)
 	mux.HandleFunc("GET /api/nodes/{id}", s.handleNodeDetail)
+	mux.HandleFunc("GET /api/insights", s.handleInsights)
 	mux.Handle("/", http.FileServer(http.FS(s.webFS)))
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -166,6 +167,16 @@ func (s *Server) handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, detail)
+}
+
+func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
+	data, err := s.st.QueryInsights(r.Context())
+	if err != nil {
+		slog.Error("insights query failed", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

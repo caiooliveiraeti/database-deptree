@@ -219,7 +219,7 @@ func extractRepositoryEdges(path, content string, classToTable map[string]string
 }
 
 func queryEdges(repo graph.Node, sql string, isNative bool, classToTable map[string]string) []graph.Edge {
-	query := graph.NewNode("QUERY", sql, nil)
+	query := graph.NewNode("QUERY", sql, map[string]any{"native": isNative})
 	edges := []graph.Edge{graph.NewEdge(repo, query, "QUERIES", nil)}
 
 	for _, m := range reFromTable.FindAllStringSubmatch(sql, -1) {

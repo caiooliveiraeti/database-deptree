@@ -8,7 +8,7 @@ function debounce(fn, delay) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
 }
 
-export default function Topbar({ onNodeSelect, onShowFullGraph, stats }) {
+export default function Topbar({ onNodeSelect, onShowFullGraph, onToggleInsights, insightsActive, stats }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
@@ -82,6 +82,10 @@ export default function Topbar({ onNodeSelect, onShowFullGraph, stats }) {
       </div>
 
       <button class="ctrl-btn" onClick=${onShowFullGraph}>Full graph</button>
+      <button
+        class=${'ctrl-btn' + (insightsActive ? ' ctrl-btn-active' : '')}
+        onClick=${onToggleInsights}
+      >Insights</button>
       ${stats && html`<span class="topbar-stats">${stats.nodes}n · ${stats.edges}e</span>`}
     </header>
   `;

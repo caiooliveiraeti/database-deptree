@@ -26,3 +26,7 @@ export async function searchNodes(term) {
 export async function fetchNodeDetail(nodeId) {
   return json('/api/nodes/' + encodeURIComponent(nodeId));
 }
+
+export async function fetchInsights() {
+  return json('/api/insights');
+}
