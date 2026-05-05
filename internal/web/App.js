@@ -1,6 +1,6 @@
 import { html } from 'htm/react';
 import { useState, useEffect, useMemo } from 'react';
-import { fetchMeta, fetchFullGraph, fetchTraversal, fetchNodeDetail, fetchInsights } from './api.js';
+import { fetchMeta, fetchFullGraph, fetchTraversal, fetchNodeDetail, fetchInsights, fetchImpactedSystems } from './api.js';
 import Topbar from './components/Topbar.js';
 import Sidebar from './components/Sidebar.js';
 import Graph from './components/Graph.js';
@@ -21,6 +21,7 @@ export default function App() {
   const [showInsights, setShowInsights] = useState(false);
   const [insightsData, setInsightsData] = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [impactedSystems, setImpactedSystems] = useState(null);
   const [filters, setFilters] = useState({ labels: new Set(), rels: new Set(), systems: new Set() });
 
   // Load metadata once on mount
@@ -88,6 +89,7 @@ export default function App() {
 
   const handleNodeSelect = (node) => {
     setSelectedNode(node);
+    setImpactedSystems(null);
     if (node) {
       setNodeDetail(null);
       setNodeDetailLoading(true);
@@ -95,6 +97,9 @@ export default function App() {
         .then(setNodeDetail)
         .catch(() => setNodeDetail(null))
         .finally(() => setNodeDetailLoading(false));
+      fetchImpactedSystems(node.id)
+        .then(setImpactedSystems)
+        .catch(() => setImpactedSystems([]));
     } else {
       setNodeDetail(null);
       setNodeDetailLoading(false);
@@ -177,7 +182,8 @@ export default function App() {
             node=${selectedNode}
             nodeDetail=${nodeDetail}
             nodeDetailLoading=${nodeDetailLoading}
-            onClose=${() => { setSelectedNode(null); setNodeDetail(null); }}
+            impactedSystems=${impactedSystems}
+            onClose=${() => { setSelectedNode(null); setNodeDetail(null); setImpactedSystems(null); }}
             onExploreFrom=${handleExploreFrom}
             onShowFullGraph=${showFullGraph}
           />

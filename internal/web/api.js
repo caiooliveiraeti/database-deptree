@@ -30,3 +30,7 @@ export async function fetchNodeDetail(nodeId) {
 export async function fetchInsights() {
   return json('/api/insights');
 }
+
+export async function fetchImpactedSystems(nodeId) {
+  return json('/api/impact?from=' + encodeURIComponent(nodeId));
+}

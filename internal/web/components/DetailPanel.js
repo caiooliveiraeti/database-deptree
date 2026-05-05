@@ -4,7 +4,7 @@ import { nodeColor } from '../colors.js';
 const PROP_LABELS = { owner: 'Schema', shortName: 'Short Name', file: 'File' };
 const propLabel = (k) => PROP_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
 
-export default function DetailPanel({ node, nodeDetail, nodeDetailLoading, onClose, onExploreFrom, onShowFullGraph }) {
+export default function DetailPanel({ node, nodeDetail, nodeDetailLoading, impactedSystems, onClose, onExploreFrom, onShowFullGraph }) {
   if (!node) return null;
 
   const extraProps = nodeDetail
@@ -58,6 +58,25 @@ export default function DetailPanel({ node, nodeDetail, nodeDetailLoading, onClo
             `)}
           </tbody>
         </table>
+      `}
+
+      ${impactedSystems !== null && html`
+        <div class="detail-divider" />
+        <div class="detail-impact">
+          <div class="detail-impact-label">
+            Impacted systems
+            ${impactedSystems.length > 0 && html`<span class="detail-impact-count">${impactedSystems.length}</span>`}
+          </div>
+          ${impactedSystems.length === 0
+            ? html`<div class="detail-impact-empty">No application reaches this node</div>`
+            : impactedSystems.map((s) => html`
+                <div key=${s.id} class="detail-impact-item">
+                  <span class="detail-impact-dot" style=${{ background: nodeColor('APPLICATION') }} />
+                  <span class="detail-impact-name">${s.name || s.id}</span>
+                </div>
+              `)
+          }
+        </div>
       `}
     </div>
   `;

@@ -19,6 +19,7 @@ type Store interface {
 	SearchNodes(ctx context.Context, term string) ([]NodeData, error)
 	GetNode(ctx context.Context, id string) (NodeDetail, error)
 	QueryInsights(ctx context.Context) (InsightsData, error)
+	QueryImpactedSystems(ctx context.Context, nodeID string) ([]NodeData, error)
 	Close() error
 }
 
@@ -420,6 +421,41 @@ func validateIdentifier(s string) error {
 		return fmt.Errorf("%q is not a valid Neo4j identifier", s)
 	}
 	return nil
+}
+
+func (s *Neo4jStore) QueryImpactedSystems(ctx context.Context, nodeID string) ([]NodeData, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx, `
+		MATCH (app:APPLICATION)-[*1..10]->(n {id: $id})
+		RETURN DISTINCT app.id AS id, 'APPLICATION' AS label,
+		       coalesce(app.name, app.id) AS name,
+		       coalesce(app.system, '') AS system
+		ORDER BY name
+	`, map[string]any{"id": nodeID})
+	if err != nil {
+		return nil, fmt.Errorf("impacted systems query: %w", err)
+	}
+
+	var nodes []NodeData
+	for result.Next(ctx) {
+		rec := result.Record()
+		id, _ := rec.Get("id")
+		label, _ := rec.Get("label")
+		name, _ := rec.Get("name")
+		system, _ := rec.Get("system")
+		nodes = append(nodes, NodeData{
+			ID:     str(id),
+			Label:  str(label),
+			Name:   str(name),
+			System: str(system),
+		})
+	}
+	if nodes == nil {
+		nodes = []NodeData{}
+	}
+	return nodes, result.Err()
 }
 
 func (s *Neo4jStore) QueryInsights(ctx context.Context) (InsightsData, error) {

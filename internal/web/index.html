@@ -292,6 +292,36 @@ button:hover { opacity: .85; }
 .ctrl-btn:hover { border-color: #818cf8; color: #818cf8; }
 .ctrl-btn-active { background: #818cf8; border-color: #818cf8; color: #0f172a; }
 
+/* ── Impacted systems (DetailPanel) ─────────────────────────── */
+.detail-impact { display: flex; flex-direction: column; gap: 4px; }
+.detail-impact-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.detail-impact-count {
+  font-size: 10px;
+  background: #334155;
+  color: #94a3b8;
+  padding: 0 5px;
+  border-radius: 10px;
+}
+.detail-impact-empty { font-size: 11px; color: #334155; }
+.detail-impact-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 0;
+}
+.detail-impact-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.detail-impact-name { font-size: 12px; color: #cbd5e1; }
+
 /* ── Insights panel ──────────────────────────────────────────── */
 .insights-panel {
   width: 300px;

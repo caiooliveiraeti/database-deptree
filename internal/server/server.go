@@ -31,6 +31,7 @@ func (s *Server) Run(ctx context.Context) error {
 	mux.HandleFunc("GET /api/nodes/search", s.handleNodeSearch)
 	mux.HandleFunc("GET /api/nodes/{id}", s.handleNodeDetail)
 	mux.HandleFunc("GET /api/insights", s.handleInsights)
+	mux.HandleFunc("GET /api/impact", s.handleImpact)
 	mux.Handle("/", http.FileServer(http.FS(s.webFS)))
 
 	addr := fmt.Sprintf(":%d", s.port)
@@ -167,6 +168,21 @@ func (s *Server) handleNodeDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, detail)
+}
+
+func (s *Server) handleImpact(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.URL.Query().Get("from")
+	if nodeID == "" {
+		http.Error(w, "from is required", http.StatusBadRequest)
+		return
+	}
+	systems, err := s.st.QueryImpactedSystems(r.Context(), nodeID)
+	if err != nil {
+		slog.Error("impact query failed", "from", nodeID, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, systems)
 }
 
 func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
